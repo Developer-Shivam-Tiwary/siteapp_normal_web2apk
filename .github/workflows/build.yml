@@ -1,7 +1,19 @@
 name: Build APK
 on:
-  push:
   workflow_dispatch:
+    inputs:
+      url:
+        description: 'Website URL (http ya https)'
+        required: true
+        default: 'http://129.213.64.181'
+      app_name:
+        description: 'App ka naam'
+        required: true
+        default: 'My Site'
+      package_id:
+        description: 'Package ID (chhote letters, dots; har app ka alag)'
+        required: true
+        default: 'com.my.siteapp'
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,6 +27,10 @@ jobs:
         with:
           gradle-version: 8.7
       - name: Generate project
+        env:
+          APP_URL: ${{ inputs.url }}
+          APP_NAME: ${{ inputs.app_name }}
+          APP_PKG: ${{ inputs.package_id }}
         run: |
           mkdir -p app/src/main/java/com/my/siteapp
           cat > settings.gradle <<'EOF'
@@ -32,7 +48,7 @@ jobs:
               namespace 'com.my.siteapp'
               compileSdk 34
               defaultConfig {
-                  applicationId 'com.my.siteapp'
+                  applicationId '__PKG__'
                   minSdk 24
                   targetSdk 34
                   versionCode 1
@@ -49,7 +65,7 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <application
-                  android:label="My Site"
+                  android:label="__NAME__"
                   android:usesCleartextTraffic="true"
                   android:theme="@android:style/Theme.Material.Light.DarkActionBar">
                   <activity android:name=".MainActivity" android:exported="true">
@@ -77,14 +93,14 @@ jobs:
                   super.onCreate(b);
                   w = new WebView(this);
                   setContentView(w);
-                  setTitle("My Site");
+                  setTitle("__NAME__");
                   WebSettings s = w.getSettings();
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);
                   s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
                   w.setOverScrollMode(View.OVER_SCROLL_NEVER);
                   w.setWebViewClient(new WebViewClient());
-                  w.loadUrl("http://129.213.64.181");
+                  w.loadUrl("__URL__");
               }
               @Override public boolean onCreateOptionsMenu(Menu m) {
                   m.add(0, 1, 0, "Refresh").setShowAsAction(
@@ -100,6 +116,27 @@ jobs:
               }
           }
           EOF
+          python3 - <<'PY'
+          import os, re
+          url = os.environ['APP_URL'].strip()
+          name = os.environ['APP_NAME'].strip()
+          pkg = os.environ['APP_PKG'].strip()
+          if not re.match(r'^https?://', url):
+              url = 'http://' + url
+          if not re.match(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$', pkg):
+              raise SystemExit('Package ID galat hai. Example: com.my.siteapp')
+          def j(s): return s.replace('\\', '\\\\').replace('"', '\\"')
+          def x(s): return s.replace('&', '&amp;').replace('<', '&lt;').replace('"', '&quot;')
+          def sub(path, pairs):
+              t = open(path, encoding='utf-8').read()
+              for a, b in pairs:
+                  t = t.replace(a, b)
+              open(path, 'w', encoding='utf-8').write(t)
+          sub('app/build.gradle', [('__PKG__', pkg)])
+          sub('app/src/main/AndroidManifest.xml', [('__NAME__', x(name))])
+          sub('app/src/main/java/com/my/siteapp/MainActivity.java',
+              [('__NAME__', j(name)), ('__URL__', j(url))])
+          PY
       - name: Build
         run: gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
